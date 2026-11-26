@@ -23,6 +23,7 @@ export type HudAction =
   | 'dismiss_receipt'
   | 'prompt_move_500_margin'
   | 'prompt_move_500_spot'
+  | 'cycle_transfer_amount'
   | 'close_50'
   | 'move_stop_entry'
   | 'next_position'
@@ -83,6 +84,7 @@ function formatAlertSummaryLine(alert: PriceAlert | undefined, now: number): str
 
 export function formatHudModel(state: SessionState): HudModel {
   const totalPnl = computeTotalUnrealizedPnl(state) + state.realizedPnl
+  const amt = Math.round(state.transferAmountUsd)
 
   // Priority 1: Pending Yes/No confirmation overlay
   if (state.pendingConfirmation) {
@@ -142,9 +144,9 @@ export function formatHudModel(state: SessionState): HudModel {
         clampLine(
           `Mark ${fmtPrice(mark)} (${alertPos.alertDrawdownPct}%) | ${renderHealthBar(state.balances.marginHealthPct)} ${state.balances.marginHealthPct}%`,
         ),
-        clampLine('1-Tap: Move $500 Margin or Close 50%'),
+        clampLine(`1-Tap: Move $${amt} Margin or Close 50%`),
       ].join('\n'),
-      actionItems: ['Move $500 Spot -> Margin', 'Close 50% Market', 'Snooze Alert 5m'],
+      actionItems: [`Move $${amt} Spot -> Margin`, 'Close 50% Market', 'Snooze Alert 5m'],
     }
   }
 
@@ -188,7 +190,7 @@ export function formatHudModel(state: SessionState): HudModel {
           `Open: ${openCount}/${state.positions.length} | Alerts: ${armedAlerts} | Voice:${state.voice.listening ? 'ON' : 'Ready'}`,
         ),
       ].join('\n'),
-      actionItems: ['Positions (5 Venues)', 'Move $500 Spot -> Margin', 'Wallet & Safety'],
+      actionItems: ['Positions (5 Venues)', `Move $${amt} Spot -> Margin`, 'Wallet & Safety'],
     }
   }
 
@@ -210,7 +212,12 @@ export function formatHudModel(state: SessionState): HudModel {
           `Yes/No Gate: ${state.safety.requireConfirm ? 'ON' : 'OFF'} | Input: ${state.lastInputSource}`,
         ),
       ].join('\n'),
-      actionItems: ['Move $500 Spot -> Margin', 'Move $500 Margin -> Spot', 'Price Alerts'],
+      actionItems: [
+        `Move $${amt} Spot -> Margin`,
+        `Move $${amt} Margin -> Spot`,
+        `Amount: $${amt} (Tap Cycle)`,
+        'Price Alerts',
+      ],
     }
   }
 
@@ -250,7 +257,7 @@ export function formatHudModel(state: SessionState): HudModel {
         ),
         clampLine('Ring Scroll: Cycle | Tap Next or Overview'),
       ].join('\n'),
-      actionItems: ['Move $500 Spot -> Margin', `Next Position (${idxStr})`, 'Back to Overview'],
+      actionItems: [`Move $${amt} Spot -> Margin`, `Next Position (${idxStr})`, 'Back to Overview'],
     }
   }
 
@@ -307,6 +314,7 @@ export function resolveHudListAction(state: SessionState, idx: number): HudActio
   if (model.mode === 'wallet') {
     if (idx === 0) return 'prompt_move_500_margin'
     if (idx === 1) return 'prompt_move_500_spot'
+    if (idx === 2) return 'cycle_transfer_amount'
     return 'go_alerts'
   }
   if (model.mode === 'alerts') {

@@ -8,6 +8,7 @@ const hud = new GlassesHud()
 const voiceCtrl = new VoiceController()
 const engine = new RiskGuardEngine({
   onSpeak: text => voiceCtrl.speak(text),
+  onCue: kind => voiceCtrl.playCue(kind),
 })
 
 const appRoot = document.getElementById('app')!
@@ -28,6 +29,10 @@ const ui = new CompanionUi(appRoot, {
   },
   onPromptMarginToSpot: amountUsd => {
     engine.requestConfirmation('transfer_margin_to_spot', { amountUsd, source: 'UI' })
+    syncAll()
+  },
+  onSetTransferAmount: amountUsd => {
+    engine.setTransferAmount(amountUsd, 'UI')
     syncAll()
   },
   onSelectScreen: screen => {

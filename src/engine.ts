@@ -23,11 +23,16 @@ import type {
 } from './types'
 import { formatIntentSummary, parseVoiceCommand } from './voice'
 
+export type AudioCueKind = 'prompt' | 'ok' | 'cancel' | 'alert'
+
 export interface RiskGuardEngineOptions {
   now?: () => number
   onSpeak?: (text: string) => void
+  onCue?: (kind: AudioCueKind) => void
   sendTestnetOrder?: typeof sendBinanceTestnetOrder
 }
+
+const TRANSFER_PRESETS = [250, 500, 750, 1000] as const
 
 function fmtUsd(val: number): string {
   const sign = val >= 0 ? '+' : '-'
@@ -40,11 +45,13 @@ export class RiskGuardEngine {
   private dailyLossWarned = false
   private readonly now: () => number
   private readonly onSpeak?: (text: string) => void
+  private readonly onCue?: (kind: AudioCueKind) => void
   private readonly sendTestnetOrder: typeof sendBinanceTestnetOrder
 
   constructor(options: RiskGuardEngineOptions = {}) {
     this.now = options.now ?? (() => Date.now())
     this.onSpeak = options.onSpeak
+    this.onCue = options.onCue
     this.sendTestnetOrder = options.sendTestnetOrder ?? sendBinanceTestnetOrder
     this.state = createInitialState()
   }
@@ -63,8 +70,9 @@ export class RiskGuardEngine {
     if (this.state.logs.length > 60) this.state.logs.length = 60
   }
 
-  private maybeSpeak(text: string): void {
+  private maybeSpeak(text: string, cue?: AudioCueKind): void {
     if (this.state.voice.ttsEnabled) {
+      if (cue) this.onCue?.(cue)
       this.onSpeak?.(text)
     }
   }
@@ -163,6 +171,23 @@ export class RiskGuardEngine {
     this.addLog('info', enabled ? 'Voice TTS readout enabled.' : 'Voice TTS readout muted.')
   }
 
+  setTransferAmount(amountUsd: number, source: InputSource = 'UI'): void {
+    const rounded = Math.round(amountUsd)
+    if (!Number.isFinite(rounded) || rounded <= 0) return
+    this.state.lastInputSource = source
+    this.state.transferAmountUsd = Math.min(rounded, this.state.safety.maxSingleTransferUsd)
+    this.addLog('info', `[${source}] Default quick transfer amount set to $${this.state.transferAmountUsd}.`)
+  }
+
+  cycleTransferAmount(source: InputSource = 'GLASSES'): void {
+    this.state.lastInputSource = source
+    const idx = TRANSFER_PRESETS.indexOf(this.state.transferAmountUsd as (typeof TRANSFER_PRESETS)[number])
+    const next = idx >= 0 ? TRANSFER_PRESETS[(idx + 1) % TRANSFER_PRESETS.length] : TRANSFER_PRESETS[1]
+    this.state.transferAmountUsd = next
+    this.addLog('info', `[${source}] Cycled quick transfer amount to $${next}.`)
+    this.maybeSpeak(`${next} dollars selected.`, 'prompt')
+  }
+
   setRequireConfirm(required: boolean): void {
     this.state.safety.requireConfirm = required
     this.addLog(
@@ -216,7 +241,7 @@ export class RiskGuardEngine {
           if (!this.state.pendingConfirmation) this.state.status = 'ALERT'
           const msg = `RISK ALERT [${pos.venue}]: ${pos.label} hit ${pnlPct.toFixed(2)}% (guard ${pos.alertDrawdownPct}%).`
           this.addLog('alert', msg)
-          this.maybeSpeak(`Risk alert on ${pos.label}. Down ${Math.abs(pnlPct).toFixed(1)} percent.`)
+          this.maybeSpeak(`Risk alert on ${pos.label}. Down ${Math.abs(pnlPct).toFixed(1)} percent.`, 'alert')
         }
         break
       }
@@ -244,7 +269,7 @@ export class RiskGuardEngine {
         this.state.activePriceAlertId = alert.id
         if (!this.state.pendingConfirmation) this.state.status = 'ALERT'
         this.addLog('alert', `PRICE ALERT: ${alert.label} triggered @ $${mark.toFixed(2)}.`)
-        this.maybeSpeak(`Price alert triggered: ${alert.label}.`)
+        this.maybeSpeak(`Price alert triggered: ${alert.label}.`, 'alert')
         return
       }
     }
@@ -269,7 +294,7 @@ export class RiskGuardEngine {
         const msg = `$${amountUsd} exceeds max cap ($${this.state.safety.maxSingleTransferUsd}).`
         this.addLog('alert', `SAFETY BLOCK: ${msg}`)
         this.setReceipt(false, 'SAFETY BLOCKED', msg, opts.source)
-        this.maybeSpeak(`Blocked. Transfer exceeds ${this.state.safety.maxSingleTransferUsd} dollar safety limit.`)
+        this.maybeSpeak(`Blocked. Transfer exceeds ${this.state.safety.maxSingleTransferUsd} dollar safety limit.`, 'cancel')
         return
       }
       if (amountUsd > this.state.balances.spotUsd) {
@@ -374,7 +399,7 @@ export class RiskGuardEngine {
     if (this.state.pendingConfirmation) {
       this.state.status = 'CONFIRM'
       this.addLog('info', `[${opts.source}] Confirm: ${this.state.pendingConfirmation.promptTitle} (Yes / No)`)
-      this.maybeSpeak(`${this.state.pendingConfirmation.promptTitle} Say yes or no.`)
+      this.maybeSpeak(`${this.state.pendingConfirmation.promptTitle} Say yes or no.`, 'prompt')
     }
     this.refreshDerivedState()
   }
@@ -406,7 +431,7 @@ export class RiskGuardEngine {
         'info',
         `EXECUTED [${source}]: Moved $${amt} Spot -> Margin (Margin $${this.state.balances.marginUsd.toFixed(0)}, Health ${this.state.balances.marginHealthPct}%).`,
       )
-      this.maybeSpeak(`Confirmed. Moved ${amt} dollars to margin. Margin health ${this.state.balances.marginHealthPct} percent.`)
+      this.maybeSpeak(`Confirmed. Moved ${amt} dollars to margin. Margin health ${this.state.balances.marginHealthPct} percent.`, 'ok')
     } else if (pending.kind === 'transfer_margin_to_spot') {
       const amt = pending.amountUsd ?? 500
       this.state.balances.marginUsd -= amt
@@ -419,7 +444,7 @@ export class RiskGuardEngine {
         'info',
         `EXECUTED [${source}]: Moved $${amt} Margin -> Spot (Spot $${this.state.balances.spotUsd.toFixed(0)}, Health ${this.state.balances.marginHealthPct}%).`,
       )
-      this.maybeSpeak(`Confirmed. Moved ${amt} dollars to spot.`)
+      this.maybeSpeak(`Confirmed. Moved ${amt} dollars to spot.`, 'ok')
     } else if (pending.kind === 'close_50') {
       const pos = this.state.positions.find(p => p.id === pending.positionId) ?? this.getTargetPosition()
       if (pos && pos.size > 0) {
@@ -449,6 +474,7 @@ export class RiskGuardEngine {
         )
         this.maybeSpeak(
           `Closed ${pos.size === 0 ? 'full' : 'half'} ${pos.label}. Realized ${realized >= 0 ? 'profit' : 'loss'} ${Math.abs(realized).toFixed(0)} dollars.`,
+          'ok',
         )
 
         if (
@@ -495,7 +521,7 @@ export class RiskGuardEngine {
           'info',
           `EXECUTED [${source}]: Moved ${pos.label} [${pos.venue}] stop-loss to breakeven ($${pos.entryPrice.toFixed(2)}).`,
         )
-        this.maybeSpeak(`Moved ${pos.label} stop loss to entry.`)
+        this.maybeSpeak(`Moved ${pos.label} stop loss to entry.`, 'ok')
       }
     }
 
@@ -513,7 +539,7 @@ export class RiskGuardEngine {
     this.state.status = this.state.alertPositionId || this.state.activePriceAlertId ? 'ALERT' : 'ARMED'
     this.setReceipt(false, 'ACTION CANCELLED', title, source, 3000)
     this.addLog('warn', `CANCELLED [${source}]: "${title}" rejected by user.`)
-    this.maybeSpeak('Cancelled.')
+    this.maybeSpeak('Cancelled.', 'cancel')
     this.refreshDerivedState()
   }
 
@@ -532,10 +558,13 @@ export class RiskGuardEngine {
         this.refreshDerivedState()
         return
       case 'prompt_move_500_margin':
-        this.requestConfirmation('transfer_spot_to_margin', { amountUsd: 500, source })
+        this.requestConfirmation('transfer_spot_to_margin', { amountUsd: this.state.transferAmountUsd, source })
         return
       case 'prompt_move_500_spot':
-        this.requestConfirmation('transfer_margin_to_spot', { amountUsd: 500, source })
+        this.requestConfirmation('transfer_margin_to_spot', { amountUsd: this.state.transferAmountUsd, source })
+        return
+      case 'cycle_transfer_amount':
+        this.cycleTransferAmount(source)
         return
       case 'close_50': {
         const target = this.getTargetPosition()

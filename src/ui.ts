@@ -10,6 +10,7 @@ export interface UiHandlers {
   onAction: (action: HudAction, source: InputSource) => void
   onPromptSpotToMargin: (amountUsd: number) => void
   onPromptMarginToSpot: (amountUsd: number) => void
+  onSetTransferAmount: (amountUsd: number) => void
   onSelectScreen: (screen: HudScreen) => void
   onSimulateDip: () => void
   onSimulatePriceAlert: () => void
@@ -74,6 +75,7 @@ export class CompanionUi {
   private lastPriceAlertsHtml = ''
   private lastLogsHtml = ''
   private lastPositionsKey = ''
+  private lastTransferAmt = 500
 
   constructor(root: HTMLElement, handlers: UiHandlers) {
     this.root = root
@@ -256,6 +258,19 @@ export class CompanionUi {
                 <div id="ui-margin-health" class="stat-val pnl-pos">165%</div>
               </div>
             </div>
+            <div class="transfer-bar">
+              <div id="ui-amt-presets" class="controls">
+                <button type="button" class="chip" data-amt="250">$250</button>
+                <button type="button" class="chip active-tab" data-amt="500">$500</button>
+                <button type="button" class="chip" data-amt="750">$750</button>
+                <button type="button" class="chip" data-amt="1000">$1,000</button>
+              </div>
+              <div class="transfer-custom">
+                <input id="inp-transfer-amt" type="number" min="1" step="50" value="${state.transferAmountUsd}" placeholder="Custom $" />
+                <button id="btn-amt-to-margin" type="button" class="primary">Spot → Margin</button>
+                <button id="btn-amt-to-spot" type="button">Margin → Spot</button>
+              </div>
+            </div>
             <div class="safety-bar">
               <span>Max Transfer Cap: <strong>$${state.safety.maxSingleTransferUsd}</strong> · Daily Loss Limit: <strong>-$${state.safety.dailyLossLimitUsd}</strong></span>
               <label class="inline-check">
@@ -427,6 +442,29 @@ export class CompanionUi {
             : 'stat-val pnl-pos'
     }
 
+    const amtButtons = this.root.querySelectorAll('#ui-amt-presets button[data-amt]')
+    for (const btn of amtButtons) {
+      const val = Number((btn as HTMLElement).dataset.amt)
+      btn.classList.toggle('active-tab', val === state.transferAmountUsd)
+    }
+
+    const transferInp = this.root.querySelector('#inp-transfer-amt') as HTMLInputElement | null
+    if (transferInp && state.transferAmountUsd !== this.lastTransferAmt) {
+      this.lastTransferAmt = state.transferAmountUsd
+      if (document.activeElement !== transferInp) {
+        transferInp.value = String(state.transferAmountUsd)
+      }
+    }
+
+    const promptMarginBtn = this.root.querySelector('#btn-prompt-500')
+    if (promptMarginBtn) {
+      promptMarginBtn.textContent = `Move $${Math.round(state.transferAmountUsd)} Spot→Margin? (Yes/No)`
+    }
+    const promptSpotBtn = this.root.querySelector('#btn-prompt-spot')
+    if (promptSpotBtn) {
+      promptSpotBtn.textContent = `Move $${Math.round(state.transferAmountUsd)} Margin→Spot? (Yes/No)`
+    }
+
     const realEl = this.root.querySelector('#ui-realized')
     if (realEl) realEl.textContent = fmtUsd(state.realizedPnl)
 
@@ -501,10 +539,27 @@ export class CompanionUi {
 
   private wireStaticEvents(): void {
     this.root.querySelector('#btn-prompt-500')?.addEventListener('click', () => {
-      this.handlers.onPromptSpotToMargin(500)
+      this.handlers.onPromptSpotToMargin(this.lastState?.transferAmountUsd ?? 500)
     })
     this.root.querySelector('#btn-prompt-spot')?.addEventListener('click', () => {
-      this.handlers.onPromptMarginToSpot(500)
+      this.handlers.onPromptMarginToSpot(this.lastState?.transferAmountUsd ?? 500)
+    })
+    const transferInp = this.root.querySelector('#inp-transfer-amt') as HTMLInputElement | null
+    this.root.querySelector('#ui-amt-presets')?.addEventListener('click', evt => {
+      const btn = (evt.target as HTMLElement).closest('button[data-amt]') as HTMLButtonElement | null
+      const amt = Number(btn?.dataset.amt)
+      if (Number.isFinite(amt) && amt > 0) {
+        if (transferInp) transferInp.value = String(amt)
+        this.handlers.onSetTransferAmount(amt)
+      }
+    })
+    this.root.querySelector('#btn-amt-to-margin')?.addEventListener('click', () => {
+      const amt = Number(transferInp?.value ?? 500)
+      this.handlers.onPromptSpotToMargin(amt)
+    })
+    this.root.querySelector('#btn-amt-to-spot')?.addEventListener('click', () => {
+      const amt = Number(transferInp?.value ?? 500)
+      this.handlers.onPromptMarginToSpot(amt)
     })
     this.root.querySelector('#ui-screen-tabs')?.addEventListener('click', evt => {
       const btn = (evt.target as HTMLElement).closest('button[data-screen]') as HTMLButtonElement | null

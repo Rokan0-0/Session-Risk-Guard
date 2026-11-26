@@ -329,4 +329,40 @@ export class VoiceController {
       // Ignore TTS failures in headless / restricted environments
     }
   }
+
+  playCue(kind: 'prompt' | 'ok' | 'cancel' | 'alert'): void {
+    if (typeof window === 'undefined') return
+    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!Ctor) return
+    try {
+      const ctx = new Ctor()
+      const tones =
+        kind === 'ok'
+          ? [523.25, 659.25]
+          : kind === 'alert'
+            ? [880, 659.25]
+            : kind === 'cancel'
+              ? [330, 246.94]
+              : [587.33]
+      let startAt = ctx.currentTime
+      for (const freq of tones) {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(freq, startAt)
+        gain.gain.setValueAtTime(0.06, startAt)
+        gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.11)
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.start(startAt)
+        osc.stop(startAt + 0.12)
+        startAt += 0.11
+      }
+      window.setTimeout(() => {
+        void ctx.close().catch(() => {})
+      }, 450)
+    } catch {
+      // Ignore Web Audio errors when autoplay is blocked or unsupported
+    }
+  }
 }

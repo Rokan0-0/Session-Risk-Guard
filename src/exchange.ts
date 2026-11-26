@@ -244,6 +244,7 @@ export function createInitialState(): SessionState {
       marginUsd: 1800,
       marginHealthPct: 165,
     },
+    transferAmountUsd: 500,
     safety: {
       maxSingleTransferUsd: 1000,
       dailyLossLimitUsd: 1500,
@@ -251,7 +252,7 @@ export function createInitialState(): SessionState {
     },
     voice: {
       listening: false,
-      ttsEnabled: false,
+      ttsEnabled: true,
       lastTranscript: '',
       lastParsedSummary: 'Ready — say "Move 500 to margin", "Close half", or "Alert BTC at 96k"',
       g2MicActive: false,

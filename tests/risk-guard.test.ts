@@ -317,8 +317,8 @@ test('576x288 G2 HUD Multi-Screen Cycle, Receipt Auto-Expiry & Live Anchor Guard
   assert.equal(formatHudModel(engine.getState()).mode, 'wallet')
   assertHudInvariants(engine.getState(), 'screen-wallet')
 
-  // Navigate to Alerts via item 2
-  await engine.handleAction(resolveHudListAction(engine.getState(), 2), 'GLASSES')
+  // Navigate to Alerts via item 3
+  await engine.handleAction(resolveHudListAction(engine.getState(), 3), 'GLASSES')
   assert.equal(engine.getState().activeScreen, 'ALERTS')
   assert.equal(formatHudModel(engine.getState()).mode, 'alerts')
   assertHudInvariants(engine.getState(), 'screen-alerts')
@@ -353,4 +353,37 @@ test('Per-symbol live anchoring prevents bogus startup alert when ETH arrives be
   assert.equal(s.status, 'ARMED')
   assert.equal(s.alertPositionId, null)
   assert.equal(formatHudModel(s).mode, 'portfolio')
+})
+
+test('Adjustable Transfer Amount: G2 Wallet cycle presets + custom amount + safety cap', async () => {
+  const engine = new RiskGuardEngine()
+  await engine.handleAction('go_wallet', 'GLASSES')
+  assert.equal(engine.getState().transferAmountUsd, 500)
+
+  // Cycle presets directly on G2 Wallet screen (item 2: Amount: $500 (Tap Cycle))
+  assert.equal(resolveHudListAction(engine.getState(), 2), 'cycle_transfer_amount')
+  await engine.handleAction('cycle_transfer_amount', 'GLASSES')
+  assert.equal(engine.getState().transferAmountUsd, 750)
+  assert.ok(formatHudModel(engine.getState()).actionItems[0].includes('$750'))
+  assertHudInvariants(engine.getState(), 'wallet-750')
+
+  await engine.handleAction('cycle_transfer_amount', 'GLASSES')
+  assert.equal(engine.getState().transferAmountUsd, 1000)
+  await engine.handleAction('cycle_transfer_amount', 'GLASSES')
+  assert.equal(engine.getState().transferAmountUsd, 250)
+  await engine.handleAction('cycle_transfer_amount', 'GLASSES')
+  assert.equal(engine.getState().transferAmountUsd, 500)
+
+  // Custom amount from companion input ($350)
+  engine.setTransferAmount(350, 'UI')
+  assert.equal(engine.getState().transferAmountUsd, 350)
+  await engine.handleAction('prompt_move_500_margin', 'GLASSES')
+  assert.equal(engine.getState().pendingConfirmation?.promptTitle, 'Move $350 from Spot to Margin?')
+  await engine.handleAction('confirm_yes', 'GLASSES')
+  assert.equal(engine.getState().balances.spotUsd, 3900)
+  assert.equal(engine.getState().balances.marginUsd, 2150)
+
+  // Direct custom transfer exceeding $1,000 cap is still safety-blocked
+  engine.requestConfirmation('transfer_spot_to_margin', { amountUsd: 1500, source: 'UI' })
+  assert.equal(engine.getState().lastReceipt?.title, 'SAFETY BLOCKED')
 })

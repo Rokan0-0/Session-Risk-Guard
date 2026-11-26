@@ -118,6 +118,7 @@ export interface SessionState {
   positions: Position[]
   priceAlerts: PriceAlert[]
   balances: AccountBalances
+  transferAmountUsd: number
   safety: SafetyLimits
   voice: VoiceState
   realizedPnl: number
